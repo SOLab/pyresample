@@ -31,6 +31,10 @@ from . import geometry
 from . import data_reduce
 from . import _spatial_mp
 
+import gc
+
+from memory_profiler import profile
+
 if sys.version < '3':
     range = xrange
 else:
@@ -269,6 +273,7 @@ def _resample(source_geo_def, data, target_geo_def, resample_type,
                                           with_uncert=with_uncert)
 
 
+#~ @profile
 def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
                        neighbours=8, epsilon=0, reduce_data=True,
                        nprocs=1, segments=None):
@@ -338,6 +343,7 @@ def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
         # Iterate through segments
         for i, target_slice in enumerate(geometry._get_slice(segments,
                                                              target_geo_def.shape)):
+            print i, target_slice
 
             # Query on slice of target coordinates
             next_voi, next_ia, next_da = \
@@ -385,6 +391,7 @@ def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
     return valid_input_index, valid_output_index, index_array, distance_array
 
 
+#~ @profile
 def _get_valid_input_index(source_geo_def, target_geo_def, reduce_data,
                            radius_of_influence, nprocs=1):
     """Find indices of reduced inputput data"""
@@ -432,6 +439,7 @@ def _get_valid_input_index(source_geo_def, target_geo_def, reduce_data,
     return valid_input_index, source_lons, source_lats
 
 
+#~ @profile
 def _get_valid_output_index(source_geo_def, target_geo_def, target_lons,
                             target_lats, reduce_data, radius_of_influence):
     """Find indices of reduced output data"""
@@ -463,6 +471,7 @@ def _get_valid_output_index(source_geo_def, target_geo_def, target_lons,
     return valid_output_index
 
 
+#~ @profile
 def _create_resample_kdtree(source_lons, source_lats, valid_input_index, nprocs=1):
     """Set up kd tree on input"""
 
@@ -476,16 +485,23 @@ def _create_resample_kdtree(source_lons, source_lats, valid_input_index, nprocs=
     input_coords = input_coords[valid_input_index]
     """
 
-    source_lons_valid = source_lons[valid_input_index]
-    source_lats_valid = source_lats[valid_input_index]
+    #~ Creating new array takes much memory, rewriting existing ones
+    #~ this is crutial cause small amounts become large when processing huge arrays
+    #~ source_lons_valid = source_lons[valid_input_index]
+    #~ source_lats_valid = source_lats[valid_input_index]
 
     if nprocs > 1:
         cartesian = _spatial_mp.Cartesian_MP(nprocs)
     else:
         cartesian = _spatial_mp.Cartesian()
 
-    input_coords = cartesian.transform_lonlats(
-        source_lons_valid, source_lats_valid)
+    input_coords = cartesian.transform_lonlats(\
+        source_lons.ravel()[valid_input_index],\
+        source_lats.ravel()[valid_input_index])
+
+    #~ free memory
+    del source_lats, source_lons
+    gc.collect()
 
     if input_coords.size == 0:
         raise EmptyResult('No valid data points in input data')
@@ -502,6 +518,7 @@ def _create_resample_kdtree(source_lons, source_lats, valid_input_index, nprocs=
     return resample_kdtree
 
 
+#~ @profile
 def _query_resample_kdtree(resample_kdtree, source_geo_def, target_geo_def,
                            radius_of_influence, data_slice,
                            neighbours=8, epsilon=0, reduce_data=True, nprocs=1):
@@ -535,11 +552,18 @@ def _query_resample_kdtree(resample_kdtree, source_geo_def, target_geo_def,
     else:
         cartesian = _spatial_mp.Cartesian()
 
-    target_lons_valid = target_lons.ravel()[valid_output_index]
-    target_lats_valid = target_lats.ravel()[valid_output_index]
+    #~ Creating new array takes much memory, rewriting existing ones
+    #~ this is crutial cause small amounts become large when processing huge arrays
+    #~ target_lons_valid = target_lons.ravel()[valid_output_index]
+    #~ target_lats_valid = target_lats.ravel()[valid_output_index]
 
-    output_coords = cartesian.transform_lonlats(
-        target_lons_valid, target_lats_valid)
+    output_coords = cartesian.transform_lonlats(\
+        target_lons.ravel()[valid_output_index],\
+        target_lats.ravel()[valid_output_index])
+
+    #~ free memory
+    del target_lats, target_lons
+    gc.collect()
 
     # Query kd-tree
     distance_array, index_array = resample_kdtree.query(output_coords,
@@ -566,6 +590,7 @@ def _create_empty_info(source_geo_def, target_geo_def, neighbours):
     return valid_output_index, index_array, distance_array
 
 
+#~ @profile
 def get_sample_from_neighbour_info(resample_type, output_shape, data,
                                    valid_input_index, valid_output_index,
                                    index_array, distance_array=None,
@@ -668,25 +693,27 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
                              'just the nearest')
 
     # Reduce data
-    new_data = data[valid_input_index]
+    #~ Removed new_data, as it used some memory, when creating new array
+    #~ this is crutial cause small amounts become large when processing huge arrays
+    data = data[valid_input_index]
 
     # Nearest neighbour resampling should conserve data type
     # Get data type
     conserve_input_data_type = False
     if resample_type == 'nn':
         conserve_input_data_type = True
-        input_data_type = new_data.dtype
+        input_data_type = data.dtype
 
     # Handle masked array input
     is_masked_data = False
-    if np.ma.is_masked(new_data):
+    if np.ma.is_masked(data):
         # Add the mask as channels to the dataset
         is_masked_data = True
-        new_data = np.column_stack((new_data.data, new_data.mask))
+        data = np.column_stack((data.data, data.mask))
 
-    if new_data.ndim > 1:  # Multiple channels or masked input
+    if data.ndim > 1:  # Multiple channels or masked input
         output_shape = list(output_shape)
-        output_shape.append(new_data.shape[1])
+        output_shape.append(data.shape[1])
 
     # Prepare weight_funcs argument for handeling mask data
     if weight_funcs is not None and is_masked_data:
@@ -699,15 +726,20 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
     use_masked_fill_value = False
     if fill_value is None:
         use_masked_fill_value = True
-        fill_value = _get_fill_mask_value(new_data.dtype)
+        fill_value = _get_fill_mask_value(data.dtype)
 
     # Resample based on kd-tree query result
     if resample_type == 'nn' or neighbours == 1:
         # Get nearest neighbour using array indexing
-        index_mask = (index_array == input_size)
-        new_index_array = np.where(index_mask, 0, index_array)
-        result = new_data[new_index_array]
-        result[index_mask] = fill_value
+        #~ Removed new_index_array, as it used memory, when creating new array
+        #~ this is crutial cause small amounts become large when processing huge arrays
+        #~ index_mask = (index_array == input_size)
+        #~ new_index_array = np.where(index_mask, 0, index_array)
+        #~ result = new_data[new_index_array]
+        #~ result[index_mask] = fill_value
+        data = data[np.where((index_array == input_size), 0, index_array)]
+        data[index_array == input_size] = fill_value
+        result = data
     else:
         # Calculate result using weighting.
         # Note: the code below has low readability in order
@@ -724,7 +756,7 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
             index_ni[index_mask_ni] = 0
 
             # Get channel data for the corresponing indices
-            ch_ni = new_data[index_ni]
+            ch_ni = data[index_ni]
             ch_neighbour_list.append(ch_ni)
             index_mask_list.append(index_mask_ni)
 
@@ -736,11 +768,11 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
             distance = distance_array[:, i].copy()
             distance[index_mask_list[i]] = 1
 
-            if new_data.ndim > 1:  # More than one channel in data set.
+            if data.ndim > 1:  # More than one channel in data set.
                 # Calculate weights for each channel
                 weights = []
                 num_weights = valid_output_index.sum()
-                num_channels = new_data.shape[1]
+                num_channels = data.shape[1]
                 for j in range(num_channels):
                     calc_weight = weight_funcs[j](distance)
                     # Turn a scalar weight into a numpy array
@@ -763,7 +795,7 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
         # Calculate result
         for i in range(neighbours):  # Iterate over number of neighbours
             # Find invalid indices to be masked of from calculation
-            if new_data.ndim > 1:  # More than one channel in data set.
+            if data.ndim > 1:  # More than one channel in data set.
                 inv_index_mask = np.expand_dims(
                     np.invert(index_mask_list[i]), axis=1)
             else:  # Only one channel
@@ -782,7 +814,7 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
             # 2. pass to calculate standard deviation
             for i in range(neighbours):  # Iterate over number of neighbours
                 # Find invalid indices to be masked of from calculation
-                if new_data.ndim > 1:  # More than one channel in data set.
+                if data.ndim > 1:  # More than one channel in data set.
                     inv_index_mask = np.expand_dims(
                         np.invert(index_mask_list[i]), axis=1)
                 else:  # Only one channel
@@ -807,14 +839,55 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
         result[np.invert(result_valid_index)] = fill_value
 
     # Create full result
-    if new_data.ndim > 1:  # More than one channel
-        output_raw_shape = ((output_size, new_data.shape[1]))
+    if data.ndim > 1:  # More than one channel
+        output_raw_shape = ((output_size, data.shape[1]))
     else:  # One channel
         output_raw_shape = output_size
 
-    full_result = np.ones(output_raw_shape) * fill_value
+    del data, distance_array, \
+        index_array, input_size, is_multi_channel, neighbours, \
+        output_size, resample_type, valid_input_size, \
+        valid_output_size, valid_types, weight_funcs
+
+    from tempfile import TemporaryFile
+    from .volumeutils import calculate_scale, apply_read_scaling, apply_write_scaling
+    #~ Create a memmap with dtype and shape that matches our data for memory saving
+    scaling, intercept, _, _ = calculate_scale(result, np.int8, True)
+    result = apply_write_scaling(result, np.int8, intercept=intercept, divslope=scaling)
+
+    fill_value = _get_fill_mask_value(result.dtype) # create new fill value for int8 data type
+    full_result = np.ones(output_raw_shape, dtype=np.int8) * fill_value
     full_result[valid_output_index] = result
     result = full_result
+
+    #~ tmpFn2 = TemporaryFile()
+    #~ fill_value = _get_fill_mask_value(result.dtype) # create new fill value for int8 data type
+    #~ full_result = np.memmap(tmpFn2, dtype='int8', mode='w+', shape=output_raw_shape)
+    #~ full_result = np.ones(output_raw_shape, dtype=np.int8) * fill_value
+    #~ full_result[valid_output_index] = result
+    #~ result = full_result
+    
+    #~ result = np.memmap(tmpFn2, dtype='int8', mode='r', shape=output_raw_shape)
+    #~ result = apply_read_scaling(result, scaling, intercept)
+    #~ tmpFn2.close()
+
+    #~ result = result.astype(float32)
+    #~ result = np.memmap(tmpFn, dtype='float32', mode='w+', shape=output_raw_shape)
+    #~ del result
+#~ 
+    #~ print fill_value
+#~ 
+    #~ tmpFn2 = TemporaryFile()
+    #~ full_result = np.memmap(tmpFn2, dtype='float32', mode='w+', shape=output_raw_shape)
+    #~ full_result = np.ones(output_raw_shape, dtype=np.float64) * fill_value
+    #~ full_result[valid_output_index] = np.memmap(tmpFn, dtype='float32', mode='r', shape=output_raw_shape)
+    #~ del full_result
+
+    #~ result = np.memmap(tmpFn2, dtype='float32', mode='r', shape=output_raw_shape)
+
+    #~ full_result = np.ones(output_raw_shape) * fill_value
+    #~ full_result[valid_output_index] = result
+    #~ result = full_result
 
     if with_uncert:  # Add fill values for uncertainty
         full_stddev = np.ones(output_raw_shape) * np.nan
@@ -855,7 +928,7 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
             count = np.ma.array(count, mask=result.mask)
         return result, stddev, count
     else:
-        return result
+        return result, scaling, intercept
 
 
 def _get_fill_mask_value(data_dtype):
