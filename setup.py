@@ -5,7 +5,7 @@
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Lesser General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or
-#(at your option) any later version.
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful, but WITHOUT
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
@@ -17,7 +17,6 @@
 
 import imp
 # workaround python bug: http://bugs.python.org/issue15881#msg170215
-import multiprocessing
 import os
 import sys
 
@@ -28,8 +27,8 @@ version = imp.load_source('pyresample.version', 'pyresample/version.py')
 
 requirements = ['setuptools>=3.2', 'pyproj', 'numpy', 'configobj',
                 'pykdtree>=1.1.1', 'pyyaml']
-extras_require = {'pykdtree': ['pykdtree>=1.1.1'],
-                  'numexpr': ['numexpr'],
+extras_require = {'pykdtree':  ['pykdtree>=1.1.1'],
+                  'numexpr':   ['numexpr'],
                   'quicklook': ['matplotlib', 'basemap', 'pillow']}
 
 if sys.version_info < (2, 6):
@@ -44,7 +43,8 @@ else:
 extensions = [
     Extension("pyresample.ewa._ll2cr", sources=["pyresample/ewa/_ll2cr.pyx"],
               extra_compile_args=extra_compile_args),
-    Extension("pyresample.ewa._fornav", sources=["pyresample/ewa/_fornav.pyx", "pyresample/ewa/_fornav_templates.cpp"], language="c++", extra_compile_args=extra_compile_args,
+    Extension("pyresample.ewa._fornav", sources=["pyresample/ewa/_fornav.pyx", "pyresample/ewa/_fornav_templates.cpp"],
+              language="c++", extra_compile_args=extra_compile_args,
               depends=["pyresample/ewa/_fornav_templates.h"])
 ]
 
@@ -81,7 +81,8 @@ class build_ext(_build_ext):
 if __name__ == "__main__":
     if not os.getenv("USE_CYTHON", False) or cythonize is None:
         print(
-            "Cython will not be used. Use environment variable 'USE_CYTHON=True' to use it")
+                "Cython will not be used. Use environment variable 'USE_CYTHON=True' to use it")
+
 
         def cythonize(extensions, **_ignore):
             """Fake function to compile from C/C++ files instead of compiling .pyx files with cython.
@@ -100,12 +101,12 @@ if __name__ == "__main__":
                 extension.sources[:] = sources
             return extensions
 
-    setup(name='pyresample',
+    setup(name='solab-pyresample',
           version=version.__version__,
           description='Resampling of remote sensing data in Python',
-          author='Thomas Lavergne',
-          author_email='t.lavergne@met.no',
-          package_dir={'pyresample': 'pyresample'},
+          author='Thomas Lavergne, Alexander Myasoedov',
+          author_email='t.lavergne@met.no, mag@rshu.ru',
+          package_dir={'solab-pyresample': 'pyresample'},
           packages=find_packages(),
           setup_requires=['numpy'],
           install_requires=requirements,
