@@ -24,6 +24,8 @@
 from __future__ import absolute_import
 
 import numpy as np
+import six
+import yaml
 from configobj import ConfigObj
 
 import pyresample as pr
@@ -38,20 +40,23 @@ class AreaNotFound(Exception):
 def load_area(area_file_name, *regions):
     """Load area(s) from area file
 
-    :Parameters:
+    Parameters
+    -----------
     area_file_name : str
         Path to area definition file
-    regions : str argument list 
-        Regions to parse. If no regions are specified all 
+    regions : str argument list
+        Regions to parse. If no regions are specified all
         regions in the file are returned
 
-    :Returns:
+    Returns
+    -------
     area_defs : object or list
         If one area name is specified a single AreaDefinition object is returned
         If several area names are specified a list of AreaDefinition objects is returned
 
-    :Raises:
-    AreaNotFound
+    Raises
+    ------
+    AreaNotFound:
         If a specified area name is not found
     """
 
@@ -65,21 +70,62 @@ def load_area(area_file_name, *regions):
 def parse_area_file(area_file_name, *regions):
     """Parse area information from area file
 
-    :Parameters:
+    Parameters
+    -----------
     area_file_name : str
         Path to area definition file
-    regions : str argument list 
-        Regions to parse. If no regions are specified all 
+    regions : str argument list
+        Regions to parse. If no regions are specified all
         regions in the file are returned
 
-    :Returns:
+    Returns
+    -------
     area_defs : list
         List of AreaDefinition objects
 
-    :Raises:
-    AreaNotFound
+    Raises
+    ------
+    AreaNotFound:
         If a specified area is not found
     """
+
+    try:
+        return _parse_yaml_area_file(area_file_name, *regions)
+    except yaml.scanner.ScannerError:
+        return _parse_legacy_area_file(area_file_name, *regions)
+
+
+def _parse_yaml_area_file(area_file_name, *regions):
+    """Parse area information from a yaml area file."""
+
+    with open(area_file_name) as fd_:
+        area_dict = yaml.load(fd_)
+
+    area_list = regions or area_dict.keys()
+
+    res = []
+
+    for area_name in area_list:
+        try:
+            params = area_dict[area_name]
+        except KeyError:
+            raise AreaNotFound('Area "{0}" not found in file "{1}"'.format(
+                area_name, area_file_name))
+        description = params['description']
+        projection = params['projection']
+        xsize = params['shape']['width']
+        ysize = params['shape']['height']
+        area_extent = (params['area_extent']['lower_left_xy'] +
+                       params['area_extent']['upper_right_xy'])
+        res.append(pr.geometry.AreaDefinition(area_name, description,
+                                              None, projection,
+                                              xsize, ysize,
+                                              area_extent))
+    return res
+
+
+def _parse_legacy_area_file(area_file_name, *regions):
+    """Parse area information from a legacy area file."""
 
     area_file = open(area_file_name, 'r')
     area_list = list(regions)
@@ -157,7 +203,8 @@ def get_area_def(area_id, area_name, proj_id, proj4_args, x_size, y_size,
                  area_extent):
     """Construct AreaDefinition object from arguments
 
-    :Parameters:
+    Parameters
+    -----------
     area_id : str
         ID of area
     proj_id : str
@@ -168,12 +215,13 @@ def get_area_def(area_id, area_name, proj_id, proj4_args, x_size, y_size,
         Proj4 arguments as list of arguments or string
     x_size : int
         Number of pixel in x dimension
-    y_size : int  
+    y_size : int
         Number of pixel in y dimension
-    area_extent : list 
+    area_extent : list
         Area extent as a list of ints (LL_x, LL_y, UR_x, UR_y)
 
-    :Returns: 
+    Returns
+    -------
     area_def : object
         AreaDefinition object
     """
@@ -186,15 +234,17 @@ def get_area_def(area_id, area_name, proj_id, proj4_args, x_size, y_size,
 def generate_quick_linesample_arrays(source_area_def, target_area_def, nprocs=1):
     """Generate linesample arrays for quick grid resampling
 
-    :Parameters:
-    source_area_def : object 
+    Parameters
+    -----------
+    source_area_def : object
         Source area definition as AreaDefinition object
-    target_area_def : object 
+    target_area_def : object
         Target area definition as AreaDefinition object
-    nprocs : int, optional 
+    nprocs : int, optional
         Number of processor cores to be used
 
-    :Returns: 
+    Returns
+    -------
     (row_indices, col_indices) : tuple of numpy arrays
     """
     if not (isinstance(source_area_def, pr.geometry.AreaDefinition) and
@@ -220,17 +270,19 @@ def generate_nearest_neighbour_linesample_arrays(source_area_def, target_area_de
                                                  radius_of_influence, nprocs=1):
     """Generate linesample arrays for nearest neighbour grid resampling
 
-    :Parameters:
-    source_area_def : object 
+    Parameters
+    -----------
+    source_area_def : object
         Source area definition as AreaDefinition object
-    target_area_def : object 
+    target_area_def : object
         Target area definition as AreaDefinition object
-    radius_of_influence : float 
+    radius_of_influence : float
         Cut off distance in meters
-    nprocs : int, optional 
+    nprocs : int, optional
         Number of processor cores to be used
 
-    :Returns: 
+    Returns
+    -------
     (row_indices, col_indices) : tuple of numpy arrays
     """
 
@@ -279,11 +331,13 @@ def generate_nearest_neighbour_linesample_arrays(source_area_def, target_area_de
 def fwhm2sigma(fwhm):
     """Calculate sigma for gauss function from FWHM (3 dB level)
 
-    :Parameters:
-    fwhm : float 
+    Parameters
+    ----------
+    fwhm : float
         FWHM of gauss function (3 dB level of beam footprint)
 
-    :Returns: 
+    Returns
+    -------
     sigma : float
         sigma for use in resampling gauss function
 
@@ -296,11 +350,20 @@ def _get_proj4_args(proj4_args):
     """Create dict from proj4 args
     """
 
-    if isinstance(proj4_args, str):
-        proj_config = ConfigObj(proj4_args.replace('+', '').split())
+    if isinstance(proj4_args, (str, six.text_type)):
+        proj_config = ConfigObj(str(proj4_args).replace('+', '').split())
     else:
         proj_config = ConfigObj(proj4_args)
     return proj_config.dict()
+
+
+def proj4_str_to_dict(proj4_str):
+    """Convert PROJ.4 compatible string definition to dict
+    
+    Note: Key only parameters will be assigned a value of `True`.
+    """
+    pairs = (x.split('=', 1) for x in proj4_str.split(" "))
+    return dict((x[0], (x[1] if len(x) == 2 else True)) for x in pairs)
 
 
 def _downcast_index_array(index_array, size):
@@ -317,11 +380,13 @@ def _downcast_index_array(index_array, size):
 def wrap_longitudes(lons):
     """Wrap longitudes to the [-180:+180[ validity range (preserves dtype)
 
-    :Parameters:
+    Parameters
+    ----------
     lons : numpy array
         Longitudes in degrees
 
-    :Returns: 
+    Returns
+    -------
     lons : numpy array
         Longitudes wrapped into [-180:+180[ validity range
 

@@ -27,9 +27,7 @@ import sys
 
 import numpy as np
 
-from . import geometry
-from . import data_reduce
-from . import _spatial_mp
+from pyresample import geometry, data_reduce, _spatial_mp
 
 import gc
 
@@ -68,7 +66,8 @@ def resample_nearest(source_geo_def, data, target_geo_def,
                      fill_value=0, reduce_data=True, nprocs=1, segments=None):
     """Resamples data using kd-tree nearest neighbour approach
 
-    :Parameters:
+    Parameters
+    ----------
     source_geo_def : object
         Geometry definition of source
     data : numpy array               
@@ -81,7 +80,7 @@ def resample_nearest(source_geo_def, data, target_geo_def,
     epsilon : float, optional
         Allowed uncertainty in meters. Increasing uncertainty
         reduces execution time
-    fill_value : {int, None}, optional 
+    fill_value : int or None, optional
             Set undetermined pixels to this value.
             If fill_value is None a masked array is returned 
             with undetermined pixels masked    
@@ -90,11 +89,12 @@ def resample_nearest(source_geo_def, data, target_geo_def,
         to reduce execution time
     nprocs : int, optional
         Number of processor cores to be used
-    segments : {int, None}
+    segments : int or None
         Number of segments to use when resampling.
         If set to None an estimate will be calculated
 
-    :Returns: 
+    Returns
+    -------
     data : numpy array 
         Source data resampled to target geometry
     """
@@ -110,7 +110,8 @@ def resample_gauss(source_geo_def, data, target_geo_def,
                    fill_value=0, reduce_data=True, nprocs=1, segments=None, with_uncert=False):
     """Resamples data using kd-tree gaussian weighting neighbour approach
 
-    :Parameters:
+    Parameters
+    ----------
     source_geo_def : object
         Geometry definition of source
     data : numpy array               
@@ -138,16 +139,16 @@ def resample_gauss(source_geo_def, data, target_geo_def,
         to reduce execution time
     nprocs : int, optional
         Number of processor cores to be used
-    segments : {int, None}
+    segments : int or None
         Number of segments to use when resampling.
         If set to None an estimate will be calculated
     with_uncert : bool, optional
         Calculate uncertainty estimates
 
-    :Returns:
+    Returns
+    -------
     data : numpy array (default)
         Source data resampled to target geometry
-
     data, stddev, counts : numpy array, numpy array, numpy array (if with_uncert == True)
         Source data resampled to target geometry.
         Weighted standard devaition for all pixels having more than one source value
@@ -189,7 +190,8 @@ def resample_custom(source_geo_def, data, target_geo_def,
                     segments=None, with_uncert=False):
     """Resamples data using kd-tree custom radial weighting neighbour approach
 
-    :Parameters:
+    Parameters
+    ----------
     source_geo_def : object
         Geometry definition of source
     data : numpy array               
@@ -222,10 +224,10 @@ def resample_custom(source_geo_def, data, target_geo_def,
         Number of segments to use when resampling.
         If set to None an estimate will be calculated
 
-    :Returns:
+    Returns
+    -------
     data : numpy array (default)
         Source data resampled to target geometry
-
     data, stddev, counts : numpy array, numpy array, numpy array (if with_uncert == True)
         Source data resampled to target geometry.
         Weighted standard devaition for all pixels having more than one source value
@@ -279,7 +281,8 @@ def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
                        nprocs=1, segments=None):
     """Returns neighbour info
 
-    :Parameters:
+    Parameters
+    ----------
     source_geo_def : object
         Geometry definition of source
     target_geo_def : object
@@ -291,20 +294,17 @@ def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
     epsilon : float, optional
         Allowed uncertainty in meters. Increasing uncertainty
         reduces execution time
-    fill_value : {int, None}, optional 
-            Set undetermined pixels to this value.
-            If fill_value is None a masked array is returned 
-            with undetermined pixels masked    
     reduce_data : bool, optional
         Perform initial coarse reduction of source dataset in order
         to reduce execution time
     nprocs : int, optional
         Number of processor cores to be used
-    segments : {int, None}
+    segments : int or None
         Number of segments to use when resampling.
         If set to None an estimate will be calculated
 
-    :Returns:
+    Returns
+    -------
     (valid_input_index, valid_output_index, 
     index_array, distance_array) : tuple of numpy arrays
         Neighbour resampling info
@@ -565,6 +565,14 @@ def _query_resample_kdtree(resample_kdtree, source_geo_def, target_geo_def,
     del target_lats, target_lons
     gc.collect()
 
+    # pykdtree requires query points have same data type as kdtree.
+    try:
+        dt = resample_kdtree.data.dtype
+    except AttributeError:
+        # use a sensible default
+        dt = np.dtype('d')
+    output_coords = np.asarray(output_coords, dtype=dt)
+
     # Query kd-tree
     distance_array, index_array = resample_kdtree.query(output_coords,
                                                         k=neighbours,
@@ -598,7 +606,8 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
                                    with_uncert=False):
     """Resamples swath based on neighbour info
 
-    :Parameters:
+    Parameters
+    ----------
     resample_type : {'nn', 'custom'}
         'nn': Use nearest neighbour resampling
         'custom': Resample based on weight_funcs
@@ -621,12 +630,13 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
         If only one channel is resampled weight_funcs is
         a single function object.
         Must be supplied when using 'custom' resample type
-    fill_value : {int, None}, optional 
+    fill_value : int or None, optional
         Set undetermined pixels to this value.
         If fill_value is None a masked array is returned 
         with undetermined pixels masked
 
-    :Returns: 
+    Returns
+    -------
     result : numpy array 
         Source data resampled to target geometry
     """

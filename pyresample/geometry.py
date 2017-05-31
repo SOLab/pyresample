@@ -1,10 +1,11 @@
 # pyresample, Resampling of remote sensing image data in python
 #
-# Copyright (C) 2010-2015
+# Copyright (C) 2010-2016
 #
 # Authors:
 #    Esben S. Nielsen
 #    Thomas Lavergne
+#    Adam Dybbroe
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Lesser General Public License as published by the Free
@@ -21,18 +22,21 @@
 
 """Classes for geometry operations"""
 
-from __future__ import absolute_import
-
 import warnings
+from collections import OrderedDict
 
 import numpy as np
+import yaml
 
-from . import utils
-from . import _spatial_mp
+from pyresample import _spatial_mp, utils
 
 
 class DimensionError(Exception):
     pass
+
+
+class IncompatibleAreas(Exception):
+    """Error when the areas to combine are not compatible."""
 
 
 class Boundary(object):
@@ -79,6 +83,7 @@ class BaseDefinition(object):
         else:
             self.lons = lons
 
+        self.ndim = None
         self.cartesian_coords = None
 
     def __eq__(self, other):
@@ -109,14 +114,48 @@ class BaseDefinition(object):
 
         return not self.__eq__(other)
 
+    def get_area_extent_for_subset(self, row_LR, col_LR, row_UL, col_UL):
+        """Retrieves area_extent for a subdomain
+        rows    are counted from upper left to lower left
+        columns are counted from upper left to upper right
+
+        :Parameters:
+        row_LR : int
+            row of the lower right pixel
+        col_LR : int
+            col of the lower right pixel
+        row_UL : int
+            row of the upper left pixel
+        col_UL : int
+            col of the upper left pixel
+
+        :Returns:
+        area_extent : list
+            Area extent as a list (LL_x, LL_y, UR_x, UR_y) of the subset
+
+        :Author:
+        Ulrich Hamann
+        """
+
+        (a, b) = self.get_proj_coords(data_slice=(row_LR, col_LR))
+        a = a - 0.5 * self.pixel_size_x
+        b = b - 0.5 * self.pixel_size_y
+        (c, d) = self.get_proj_coords(data_slice=(row_UL, col_UL))
+        c = c + 0.5 * self.pixel_size_x
+        d = d + 0.5 * self.pixel_size_y
+
+        return (a, b, c, d)
+
     def get_lonlat(self, row, col):
         """Retrieve lon and lat of single pixel
 
-        :Parameters:
+        Parameters
+        ----------
         row : int
         col : int
 
-        :Returns:
+        Returns
+        -------
         (lon, lat) : tuple of floats
         """
 
@@ -149,7 +188,8 @@ class BaseDefinition(object):
     def get_cartesian_coords(self, nprocs=None, data_slice=None, cache=False):
         """Retrieve cartesian coordinates of geometry definition
 
-        :Parameters:
+        Parameters
+        ----------
         nprocs : int, optional
             Number of processor cores to be used.
             Defaults to the nprocs set when instantiating object
@@ -158,7 +198,8 @@ class BaseDefinition(object):
         cache : bool, optional
             Store result the result. Requires data_slice to be None
 
-        :Returns:
+        Returns
+        -------
         cartesian_coords : numpy array
         """
 
@@ -224,11 +265,13 @@ class BaseDefinition(object):
         solely on the corners of areas, assuming the boundaries to be great
         circles.
 
-        :Parameters:
+        Parameters
+        ----------
         other : object
             Instance of subclass of BaseDefinition
 
-        :Returns:
+        Returns
+        -------
         overlaps : bool
         """
 
@@ -273,11 +316,13 @@ class BaseDefinition(object):
         """Returns the corners of the intersection polygon of the current area
         with *other*.
 
-        :Parameters:
+        Parameters
+        ----------
         other : object
             Instance of subclass of BaseDefinition
 
-        :Returns:
+        Returns
+        -------
         (corner1, corner2, corner3, corner4) : tuple of points
         """
         from pyresample.spherical_geometry import intersection_polygon
@@ -286,11 +331,13 @@ class BaseDefinition(object):
     def overlap_rate(self, other):
         """Get how much the current area overlaps an *other* area.
 
-        :Parameters:
+        Parameters
+        ----------
         other : object
             Instance of subclass of BaseDefinition
 
-        :Returns:
+        Returns
+        -------
         overlap_rate : float
         """
 
@@ -301,10 +348,10 @@ class BaseDefinition(object):
 
 
 class CoordinateDefinition(BaseDefinition):
-
     """Base class for geometry definitions defined by lons and lats only"""
 
     def __init__(self, lons, lats, nprocs=1):
+        super(CoordinateDefinition, self).__init__(lons, lats, nprocs)
         if lons.shape == lats.shape and lons.dtype == lats.dtype:
             self.shape = lons.shape
             self.size = lons.size
@@ -314,7 +361,6 @@ class CoordinateDefinition(BaseDefinition):
             raise ValueError(('%s must be created with either '
                               'lon/lats of the same shape with same dtype') %
                              self.__class__.__name__)
-        super(CoordinateDefinition, self).__init__(lons, lats, nprocs)
 
     def concatenate(self, other):
         if self.ndim != other.ndim:
@@ -346,19 +392,19 @@ class GridDefinition(CoordinateDefinition):
 
     """Grid defined by lons and lats
 
-    :Parameters:
+    Parameters
+    ----------
     lons : numpy array
     lats : numpy array
     nprocs : int, optional
         Number of processor cores to be used for calculations.
 
-    :Attributes:
+    Attributes
+    ----------
     shape : tuple
         Grid shape as (rows, cols)
     size : int
         Number of elements in grid
-
-    Properties:
     lons : object
         Grid lons
     lats : object
@@ -368,33 +414,32 @@ class GridDefinition(CoordinateDefinition):
     """
 
     def __init__(self, lons, lats, nprocs=1):
+        super(GridDefinition, self).__init__(lons, lats, nprocs)
         if lons.shape != lats.shape:
             raise ValueError('lon and lat grid must have same shape')
         elif lons.ndim != 2:
             raise ValueError('2 dimensional lon lat grid expected')
-
-        super(GridDefinition, self).__init__(lons, lats, nprocs)
 
 
 class SwathDefinition(CoordinateDefinition):
 
     """Swath defined by lons and lats
 
-    :Parameters:
+    Parameters
+    ----------
     lons : numpy array
     lats : numpy array
     nprocs : int, optional
         Number of processor cores to be used for calculations.
 
-    :Attributes:
+    Attributes
+    ----------
     shape : tuple
         Swath shape
     size : int
         Number of elements in swath
     ndims : int
         Swath dimensions
-
-    Properties:
     lons : object
         Swath lons
     lats : object
@@ -404,74 +449,74 @@ class SwathDefinition(CoordinateDefinition):
     """
 
     def __init__(self, lons, lats, nprocs=1):
+        super(SwathDefinition, self).__init__(lons, lats, nprocs)
         if lons.shape != lats.shape:
             raise ValueError('lon and lat arrays must have same shape')
         elif lons.ndim > 2:
             raise ValueError('Only 1 and 2 dimensional swaths are allowed')
-        super(SwathDefinition, self).__init__(lons, lats, nprocs)
 
 
 class AreaDefinition(BaseDefinition):
 
     """Holds definition of an area.
 
-    :Parameters:
-    area_id : str 
+    Parameters
+    ----------
+    area_id : str
         ID of area
     name : str
         Name of area
-    proj_id : str 
+    proj_id : str
         ID of projection
-    proj_dict : dict 
+    proj_dict : dict
         Dictionary with Proj.4 parameters
-    x_size : int 
+    x_size : int
         x dimension in number of pixels
-    y_size : int     
-        y dimension in number of pixels    
-    area_extent : list 
+    y_size : int
+        y dimension in number of pixels
+    area_extent : list
         Area extent as a list (LL_x, LL_y, UR_x, UR_y)
-    nprocs : int, optional 
+    nprocs : int, optional
         Number of processor cores to be used
     lons : numpy array, optional
         Grid lons
     lats : numpy array, optional
         Grid lats
 
-    :Attributes:
-    area_id : str         
+    Attributes
+    ----------
+    area_id : str
         ID of area
     name : str
         Name of area
-    proj_id : str         
+    proj_id : str
         ID of projection
-    proj_dict : dict        
+    proj_dict : dict
         Dictionary with Proj.4 parameters
-    x_size : int          
+    x_size : int
         x dimension in number of pixels
-    y_size : int          
+    y_size : int
         y dimension in number of pixels
     shape : tuple
         Corresponding array shape as (rows, cols)
     size : int
         Number of points in grid
-    area_extent : tuple     
+    area_extent : tuple
         Area extent as a tuple (LL_x, LL_y, UR_x, UR_y)
-    area_extent_ll : tuple     
+    area_extent_ll : tuple
         Area extent in lons lats as a tuple (LL_lon, LL_lat, UR_lon, UR_lat)
-    pixel_size_x : float    
+    pixel_size_x : float
         Pixel width in projection units
-    pixel_size_y : float    
+    pixel_size_y : float
         Pixel height in projection units
-    pixel_upper_left : list 
+    pixel_upper_left : list
         Coordinates (x, y) of center of upper left pixel in projection units
-    pixel_offset_x : float 
-        x offset between projection center and upper left corner of upper 
+    pixel_offset_x : float
+        x offset between projection center and upper left corner of upper
         left pixel in units of pixels.
-    pixel_offset_y : float 
-        y offset between projection center and upper left corner of upper 
+    pixel_offset_y : float
+        y offset between projection center and upper left corner of upper
         left pixel in units of pixels..
-
-    Properties:
     proj4_string : str
         Projection defined as Proj.4 string
     lons : object
@@ -542,11 +587,52 @@ class AreaDefinition(BaseDefinition):
                     ', '.join(["'%s': '%s'" % (str(k), str(proj_dict[k]))
                                for k in sorted(proj_dict.keys())]) +
                     '}')
-        return ('Area ID: %s\nName: %s\nProjection ID: %s\n'
-                'Projection: %s\nNumber of columns: %s\nNumber of rows: %s\n'
-                'Area extent: %s') % (self.area_id, self.name, self.proj_id,
-                                      proj_str, self.x_size, self.y_size,
-                                      self.area_extent)
+
+        if self.proj_id is None:
+            third_line = ""
+        else:
+            third_line = "Projection ID: {0}\n".format(self.proj_id)
+
+        return ('Area ID: {0}\nDescription: {1}\n{2}'
+                'Projection: {3}\nNumber of columns: {4}\nNumber of rows: {5}\n'
+                'Area extent: {6}').format(self.area_id, self.name, third_line,
+                                           proj_str, self.x_size, self.y_size,
+                                           self.area_extent)
+
+    def create_areas_def(self):
+        to_dump = OrderedDict()
+        res = OrderedDict()
+        to_dump[self.area_id] = res
+
+        res['description'] = self.name
+        res['shape'] = OrderedDict([('height', self.y_size),
+                                    ('width', self.x_size)])
+        res['area_extent'] = OrderedDict([('lower_left_xy',
+                                           list(self.area_extent[:2])),
+                                          ('upper_right_xy',
+                                           list(self.area_extent[2:])),
+                                          ('units', 'm')
+                                          ])
+
+        return ordered_dump(to_dump)
+
+    def create_areas_def_legacy(self):
+        proj_dict = self.proj_dict
+        proj_str = ','.join(["%s=%s" % (str(k), str(proj_dict[k]))
+                             for k in sorted(proj_dict.keys())])
+
+        fmt = "REGION: {name} {{\n"
+        fmt += "\tNAME:\t{name}\n"
+        fmt += "\tPCS_ID:\t{area_id}\n"
+        fmt += "\tPCS_DEF:\t{proj_str}\n"
+        fmt += "\tXSIZE:\t{x_size}\n"
+        fmt += "\tYSIZE:\t{y_size}\n"
+        fmt += "\tAREA_EXTENT: {area_extent}\n}};\n"
+        area_def_str = fmt.format(name=self.name, area_id=self.area_id,
+                                  proj_str=proj_str, x_size=self.x_size,
+                                  y_size=self.y_size,
+                                  area_extent=self.area_extent)
+        return area_def_str
 
     __repr__ = __str__
 
@@ -556,7 +642,7 @@ class AreaDefinition(BaseDefinition):
         try:
             return ((self.proj_dict == other.proj_dict) and
                     (self.shape == other.shape) and
-                    (self.area_extent == other.area_extent))
+                    (np.allclose(self.area_extent, other.area_extent)))
         except AttributeError:
             return super(AreaDefinition, self).__eq__(other)
 
@@ -564,6 +650,26 @@ class AreaDefinition(BaseDefinition):
         """Test for equality"""
 
         return not self.__eq__(other)
+
+    def colrow2lonlat(self, cols, rows):
+        """
+        Return longitudes and latitudes for the given image columns
+        and rows. Both scalars and arrays are supported.
+        To be used with scarse data points instead of slices
+        (see get_lonlats).
+        """
+        p = _spatial_mp.Proj(self.proj4_string)
+        x = self.proj_x_coords
+        y = self.proj_y_coords
+        return p(y[y.size - cols], x[x.size - rows], inverse=True)
+
+    def lonlat2colrow(self, lons, lats):
+        """
+        Return image columns and rows for the given longitudes
+        and latitudes. Both scalars and arrays are supported.
+        Same as get_xy_from_lonlat, renamed for convenience.
+        """
+        return self.get_xy_from_lonlat(lons, lats)
 
     def get_xy_from_lonlat(self, lon, lat):
         """Retrieve closest x and y coordinates (column, row indices) for the
@@ -573,10 +679,12 @@ class AreaDefinition(BaseDefinition):
         masked arrays are returned.
 
         :Input:
+
         lon : point or sequence (list or array) of longitudes
         lat : point or sequence (list or array) of latitudes
 
         :Returns:
+
         (x, y) : tuple of integer points/arrays
         """
 
@@ -597,24 +705,60 @@ class AreaDefinition(BaseDefinition):
                 raise ValueError("lon and lat is not of the same shape!")
 
         pobj = _spatial_mp.Proj(self.proj4_string)
+        xm_, ym_ = pobj(lon, lat)
+
+        return self.get_xy_from_proj_coords(xm_, ym_)
+
+    def get_xy_from_proj_coords(self, xm_, ym_):
+        """Retrieve closest x and y coordinates (column, row indices) for a
+        location specified with projection coordinates (xm_,ym_) in meters.
+        A ValueError is raised, if the return point is outside the area domain. If
+        xm_,ym_ is a tuple of sequences of projection coordinates, a tuple of
+        masked arrays are returned.
+
+        :Input:
+        xm_ : point or sequence (list or array) of x-coordinates in m (map projection)
+        ym_ : point or sequence (list or array) of y-coordinates in m (map projection)
+
+        :Returns:
+        (x, y) : tuple of integer points/arrays
+        """
+
+        if isinstance(xm_, list):
+            xm_ = np.array(xm_)
+        if isinstance(ym_, list):
+            ym_ = np.array(ym_)
+
+        if ((isinstance(xm_, np.ndarray) and
+             not isinstance(ym_, np.ndarray)) or
+            (not isinstance(xm_, np.ndarray) and
+             isinstance(ym_, np.ndarray))):
+            raise ValueError("Both projection coordinates xm_ and ym_ needs to be of " +
+                             "the same type and have the same dimensions!")
+
+        if isinstance(xm_, np.ndarray) and isinstance(ym_, np.ndarray):
+            if xm_.shape != ym_.shape:
+                raise ValueError(
+                    "projection coordinates xm_ and ym_ is not of the same shape!")
+
         upl_x = self.area_extent[0]
         upl_y = self.area_extent[3]
-        xscale = abs(self.area_extent[2] -
-                     self.area_extent[0]) / float(self.x_size)
-        yscale = abs(self.area_extent[1] -
-                     self.area_extent[3]) / float(self.y_size)
+        xscale = (self.area_extent[2] -
+                  self.area_extent[0]) / float(self.x_size)
+        # because rows direction is the opposite of y's
+        yscale = (self.area_extent[1] -
+                  self.area_extent[3]) / float(self.y_size)
 
-        xm_, ym_ = pobj(lon, lat)
         x__ = (xm_ - upl_x) / xscale
-        y__ = (upl_y - ym_) / yscale
+        y__ = (ym_ - upl_y) / yscale
 
         if isinstance(x__, np.ndarray) and isinstance(y__, np.ndarray):
             mask = (((x__ < 0) | (x__ > self.x_size)) |
                     ((y__ < 0) | (y__ > self.y_size)))
             return (np.ma.masked_array(x__.astype('int'), mask=mask,
-                                       fill_value=-1),
+                                       fill_value=-1, copy=False),
                     np.ma.masked_array(y__.astype('int'), mask=mask,
-                                       fill_value=-1))
+                                       fill_value=-1, copy=False))
         else:
             if ((x__ < 0 or x__ > self.x_size) or
                     (y__ < 0 or y__ > self.y_size)):
@@ -624,26 +768,30 @@ class AreaDefinition(BaseDefinition):
     def get_lonlat(self, row, col):
         """Retrieves lon and lat values of single point in area grid
 
-        :Parameters:
+        Parameters
+        ----------
         row : int
         col : int
 
-        :Returns:
+        Returns
+        -------
         (lon, lat) : tuple of floats
         """
 
         return self.get_lonlats(nprocs=None, data_slice=(row, col))
 
     def get_proj_coords(self, data_slice=None, cache=False, dtype=None):
-        """Get projection coordinates of grid 
+        """Get projection coordinates of grid
 
-        :Parameters:
+        Parameters
+        ----------
         data_slice : slice object, optional
             Calculate only coordinates for specified slice
         cache : bool, optional
             Store result the result. Requires data_slice to be None
 
-        :Returns: 
+        Returns
+        -------
         (target_x, target_y) : tuple of numpy arrays
             Grids of area x- and y-coordinates in projection units
         """
@@ -778,8 +926,9 @@ class AreaDefinition(BaseDefinition):
     def get_lonlats(self, nprocs=None, data_slice=None, cache=False, dtype=None):
         """Returns lon and lat arrays of area.
 
-        :Parameters:        
-        nprocs : int, optional 
+        Parameters
+        ----------
+        nprocs : int, optional
             Number of processor cores to be used.
             Defaults to the nprocs set when instantiating object
         data_slice : slice object, optional
@@ -787,7 +936,8 @@ class AreaDefinition(BaseDefinition):
         cache : bool, optional
             Store result the result. Requires data_slice to be None
 
-        :Returns: 
+        Returns
+        -------
         (lons, lats) : tuple of numpy arrays
             Grids of area lons and and lats
         """
@@ -796,7 +946,7 @@ class AreaDefinition(BaseDefinition):
             dtype = self.dtype
 
         if self.lons is None or self.lats is None:
-            #Data is not cached
+            # Data is not cached
             if nprocs is None:
                 nprocs = self.nprocs
 
@@ -825,7 +975,7 @@ class AreaDefinition(BaseDefinition):
             del(target_x)
             del(target_y)
         else:
-            #Data is cached
+            # Data is cached
             if data_slice is None:
                 # Full slice
                 lons = self.lons
@@ -841,7 +991,138 @@ class AreaDefinition(BaseDefinition):
         """Returns projection definition as Proj.4 string"""
 
         items = self.proj_dict.items()
-        return '+' + ' +'.join([t[0] + '=' + t[1] for t in items])
+        return '+' + ' +'.join([t[0] + '=' + str(t[1]) for t in items])
+
+
+def combine_area_extents_vertical(area1, area2):
+    """Combine the area extents of areas 1 and 2."""
+    if (area1.area_extent[0] == area2.area_extent[0] and
+            area1.area_extent[2] == area2.area_extent[2]):
+        current_extent = list(area1.area_extent)
+        if np.isclose(area1.area_extent[1], area2.area_extent[3]):
+            current_extent[1] = area2.area_extent[1]
+        elif np.isclose(area1.area_extent[3], area2.area_extent[1]):
+            current_extent[3] = area2.area_extent[3]
+    else:
+        raise IncompatibleAreas(
+            "Can't concatenate area definitions with "
+            "incompatible area extents: "
+            "{0} and {1}".format(area1, area2))
+    return current_extent
+
+
+def concatenate_area_defs(area1, area2, axis=0):
+    """Append *area2* to *area1* and return the results"""
+    different_items = (set(area1.proj_dict.items()) ^
+                       set(area2.proj_dict.items()))
+    if axis == 0:
+        same_size = area1.x_size == area2.x_size
+    else:
+        raise NotImplementedError('Only vertical contatenation is supported.')
+    if different_items or not same_size:
+        raise IncompatibleAreas("Can't concatenate area definitions with "
+                                "different projections: "
+                                "{0} and {1}".format(area1, area2))
+
+    if axis == 0:
+        area_extent = combine_area_extents_vertical(area1, area2)
+        x_size = area1.x_size
+        y_size = area1.y_size + area2.y_size
+    else:
+        raise NotImplementedError('Only vertical contatenation is supported.')
+    return AreaDefinition(area1.area_id, area1.name, area1.proj_id,
+                          area1.proj_dict, x_size, y_size,
+                          area_extent)
+
+
+class StackedAreaDefinition(BaseDefinition):
+    """Definition based on muliple vertically stacked AreaDefinitions."""
+
+    def __init__(self, *definitions, **kwargs):
+        """Base this instance on *definitions*.
+
+        *kwargs* used here are `nprocs` and `dtype` (see AreaDefinition).
+        """
+        nprocs = kwargs.get('nprocs', 1)
+        super(StackedAreaDefinition, self).__init__(nprocs=nprocs)
+        self.dtype = kwargs.get('dtype', np.float64)
+        self.defs = []
+        self.proj_dict = {}
+        for definition in definitions:
+            self.append(definition)
+
+    @property
+    def x_size(self):
+        return self.defs[0].x_size
+
+    @property
+    def y_size(self):
+        return sum(definition.y_size for definition in self.defs)
+
+    @property
+    def size(self):
+        return self.y_size * self.x_size
+
+    def append(self, definition):
+        """Append another definition to the area."""
+        if isinstance(definition, StackedAreaDefinition):
+            for area in definition.defs:
+                self.append(area)
+            return
+        if definition.y_size == 0:
+            return
+        if not self.defs:
+            self.proj_dict = definition.proj_dict
+        elif self.proj_dict != definition.proj_dict:
+            raise NotImplementedError('Cannot append areas:'
+                                      ' Proj.4 dict mismatch')
+        try:
+            self.defs[-1] = concatenate_area_defs(self.defs[-1], definition)
+        except (IncompatibleAreas, IndexError):
+            self.defs.append(definition)
+
+    def get_lonlats(self, nprocs=None, data_slice=None, cache=False, dtype=None):
+        """Return lon and lat arrays of the area."""
+
+        llons = []
+        llats = []
+        try:
+            row_slice, col_slice = data_slice
+        except TypeError:
+            row_slice = slice(0, self.y_size)
+            col_slice = slice(0, self.x_size)
+        offset = 0
+        for definition in self.defs:
+            local_row_slice = slice(max(row_slice.start - offset, 0),
+                                    min(max(row_slice.stop - offset, 0),
+                                        definition.y_size),
+                                    row_slice.step)
+            lons, lats = definition.get_lonlats(nprocs=nprocs,
+                                                data_slice=(local_row_slice,
+                                                            col_slice),
+                                                cache=cache,
+                                                dtype=dtype)
+
+            llons.append(lons)
+            llats.append(lats)
+            offset += lons.shape[0]
+
+        self.lons = np.vstack(llons)
+        self.lats = np.vstack(llats)
+
+        return self.lons, self.lats
+
+    def squeeze(self):
+        """Generate a single AreaDefinition if possible."""
+        if len(self.defs) == 1:
+            return self.defs[0]
+        else:
+            return self
+
+    @property
+    def proj4_string(self):
+        """Returns projection definition as Proj.4 string"""
+        return self.defs[0].proj4_string
 
 
 def _get_slice(segments, shape):
@@ -851,7 +1132,7 @@ def _get_slice(segments, shape):
         raise ValueError('Cannot segment array of shape: %s' % str(shape))
     else:
         size = shape[0]
-        slice_length = np.ceil(float(size) / segments)
+        slice_length = int(np.ceil(float(size) / segments))
         start_idx = 0
         end_idx = slice_length
         while start_idx < size:
@@ -886,3 +1167,16 @@ def _get_highest_level_class(obj1, obj2):
     else:
         klass = obj1.__class__
     return klass
+
+
+def ordered_dump(data, stream=None, Dumper=yaml.Dumper, **kwds):
+    class OrderedDumper(Dumper):
+        pass
+
+    def _dict_representer(dumper, data):
+        return dumper.represent_mapping(
+            yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+            data.items(), flow_style=False)
+
+    OrderedDumper.add_representer(OrderedDict, _dict_representer)
+    return yaml.dump(data, stream, OrderedDumper, **kwds)

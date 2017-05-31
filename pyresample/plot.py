@@ -26,11 +26,13 @@ import numpy as np
 def ellps2axis(ellps_name):
     """Get semi-major and semi-minor axis from ellipsis definition
 
-    :Parameters:
+    Parameters
+    ---------
     ellps_name : str
         Standard name of ellipsis
 
-    :Returns:
+    Returns
+    -------
     (a, b) : semi-major and semi-minor axis
     """
 
@@ -89,13 +91,15 @@ def ellps2axis(ellps_name):
 def area_def2basemap(area_def, **kwargs):
     """Get Basemap object from AreaDefinition
 
-    :Parameters:
+    Parameters
+    ---------
     area_def : object
         geometry.AreaDefinition object
-    **kwargs: Keyword arguments
+    \*\*kwargs: Keyword arguments
         Additional initialization arguments for Basemap
 
-    :Returns:
+    Returns
+    -------
     bmap : Basemap object
     """
 
@@ -151,7 +155,7 @@ def area_def2basemap(area_def, **kwargs):
 
 def _get_quicklook(area_def, data, vmin=None, vmax=None,
                    label='Variable (units)', num_meridians=45,
-                   num_parallels=10, coast_res='c'):
+                   num_parallels=10, coast_res='c', cmap='jet'):
     """Get default Basemap matplotlib plot
     """
 
@@ -166,18 +170,18 @@ def _get_quicklook(area_def, data, vmin=None, vmax=None,
     if num_parallels > 0:
         bmap.drawparallels(np.arange(-90, 90, num_parallels))
     if not (np.ma.isMaskedArray(data) and data.mask.all()):
-        col = bmap.imshow(data, origin='upper', vmin=vmin, vmax=vmax)
+        col = bmap.imshow(data, origin='upper', vmin=vmin, vmax=vmax, cmap=cmap)
         plt.colorbar(col, shrink=0.5, pad=0.05).set_label(label)
-
     return plt
 
 
 def show_quicklook(area_def, data, vmin=None, vmax=None,
                    label='Variable (units)', num_meridians=45,
-                   num_parallels=10, coast_res='c'):
+                   num_parallels=10, coast_res='c', cmap='jet'):
     """Display default quicklook plot
 
-    :Parameters:
+    Parameters
+    ---------
     area_def : object
         geometry.AreaDefinition object
     data : numpy array | numpy masked array
@@ -195,23 +199,27 @@ def show_quicklook(area_def, data, vmin=None, vmax=None,
     coast_res : {'c', 'l', 'i', 'h', 'f'}, optional
         Resolution of coastlines
 
-    :Returns:
+    Returns
+    -------
     bmap : Basemap object
     """
 
     plt = _get_quicklook(area_def, data, vmin=vmin, vmax=vmax,
                          label=label, num_meridians=num_meridians,
-                         num_parallels=num_parallels, coast_res=coast_res)
+                         num_parallels=num_parallels, coast_res=coast_res,
+                         cmap=cmap)
     plt.show()
     plt.close()
 
 
 def save_quicklook(filename, area_def, data, vmin=None, vmax=None,
                    label='Variable (units)', num_meridians=45,
-                   num_parallels=10, coast_res='c', backend='AGG'):
+                   num_parallels=10, coast_res='c', backend='AGG',
+                   cmap='jet'):
     """Display default quicklook plot
 
-    :Parameters:
+    Parameters
+    ----------
     filename : str
         path to output file
     area_def : object
