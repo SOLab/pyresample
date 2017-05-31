@@ -101,12 +101,13 @@ if __name__ == "__main__":
                 extension.sources[:] = sources
             return extensions
 
-    setup(name='solab-pyresample',
+    setup(name='solab_pyresample',
           version=version.__version__,
           description='Resampling of remote sensing data in Python',
           author='Thomas Lavergne, Alexander Myasoedov',
           author_email='t.lavergne@met.no, mag@rshu.ru',
-          package_dir={'solab-pyresample': 'pyresample'},
+          url="https://github.com/SOLab/pyresample/",
+          package_dir={'solab_pyresample': 'pyresample'},
           packages=find_packages(),
           setup_requires=['numpy'],
           install_requires=requirements,
