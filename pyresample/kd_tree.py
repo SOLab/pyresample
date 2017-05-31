@@ -343,7 +343,7 @@ def get_neighbour_info(source_geo_def, target_geo_def, radius_of_influence,
         # Iterate through segments
         for i, target_slice in enumerate(geometry._get_slice(segments,
                                                              target_geo_def.shape)):
-            print i, target_slice
+            # print i, target_slice
 
             # Query on slice of target coordinates
             next_voi, next_ia, next_da = \
@@ -859,16 +859,16 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
         output_size, resample_type, valid_input_size, \
         valid_output_size, valid_types, weight_funcs
 
-    from tempfile import TemporaryFile
-    from .volumeutils import calculate_scale, apply_read_scaling, apply_write_scaling
-    #~ Create a memmap with dtype and shape that matches our data for memory saving
-    scaling, intercept, _, _ = calculate_scale(result, np.int8, True)
-    result = apply_write_scaling(result, np.int8, intercept=intercept, divslope=scaling)
-
-    fill_value = _get_fill_mask_value(result.dtype) # create new fill value for int8 data type
-    full_result = np.ones(output_raw_shape, dtype=np.int8) * fill_value
-    full_result[valid_output_index] = result
-    result = full_result
+    # from tempfile import TemporaryFile
+    # from .volumeutils import calculate_scale, apply_read_scaling, apply_write_scaling
+    # #~ Create a memmap with dtype and shape that matches our data for memory saving
+    # scaling, intercept, _, _ = calculate_scale(result, np.int8, True)
+    # result = apply_write_scaling(result, np.int8, intercept=intercept, divslope=scaling)
+    #
+    # fill_value = _get_fill_mask_value(result.dtype) # create new fill value for int8 data type
+    # full_result = np.ones(output_raw_shape, dtype=np.int8) * fill_value
+    # full_result[valid_output_index] = result
+    # result = full_result
 
     #~ tmpFn2 = TemporaryFile()
     #~ fill_value = _get_fill_mask_value(result.dtype) # create new fill value for int8 data type
@@ -938,7 +938,8 @@ def get_sample_from_neighbour_info(resample_type, output_shape, data,
             count = np.ma.array(count, mask=result.mask)
         return result, stddev, count
     else:
-        return result, scaling, intercept
+        # return result, scaling, intercept
+        return result
 
 
 def _get_fill_mask_value(data_dtype):
